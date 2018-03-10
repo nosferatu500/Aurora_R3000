@@ -18,6 +18,10 @@ mod map {
     pub const BIOS: Range = Range(0xbfc00000, 512 * 1024);
 
     pub const MEM_CONTROL: Range = Range(0x1f801000, 36);
+
+    pub const RAM_SIZE: Range = Range(0x1f801060, 4);
+
+    pub const CACHE_CONTROL: Range = Range(0xfffe0130, 4);    
 }
 
 pub struct Interconnect {
@@ -44,7 +48,21 @@ impl Interconnect {
                 4 => if value != 0x1f802000 {
                     panic!("Expansion 2 has incorrect address: {:#08x}", value);
                 },
-                _ => println!("Incorrect MEM_CONTROL register: {:#08x}", addr),
+                _ => println!("Unimplemented MEM_CONTROL register: {:#08x}", addr),
+            }
+            return;
+        }
+
+        if let Some(offset) = map::RAM_SIZE.contains(addr) {
+            match offset {
+                _ => println!("Unimplemented RAM_SIZE control yet. Register: {:#08x}", addr),
+            }
+            return;
+        }
+
+        if let Some(offset) = map::CACHE_CONTROL.contains(addr) {
+            match offset {
+                _ => println!("Unimplemented CACHE_CONTROL yet. Register: {:#08x}", addr),
             }
             return;
         }

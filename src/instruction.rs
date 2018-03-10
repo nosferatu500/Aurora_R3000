@@ -1,5 +1,5 @@
 pub struct Instruction {
-    data: u32,
+    pub data: u32,
 }
 
 impl Instruction {
@@ -15,6 +15,10 @@ impl Instruction {
 
     pub fn special_opcode(&self) -> u32 {
         self.data & 0x3f
+    }
+
+    pub fn cop_opcode(&self) -> u32 {
+        self.rs()
     }
 
     pub fn rs(&self) -> u32 {
@@ -39,5 +43,9 @@ impl Instruction {
 
     pub fn imm_se(&self) -> u32 {
         ((self.data & 0xffff) as i16) as u32
+    }
+
+    pub fn target(&self) -> u32 {
+        self.data & 0x3ffffff
     }
 }

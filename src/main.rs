@@ -9,6 +9,10 @@ use bios::*;
 use interconnect::*;
 use cpu::*;
 
+//TODO: Check SW instruction.
+//TODO: Check RAM.
+//TODO: Check Cache.
+
 fn main() {
     let bios_file = args().nth(1).unwrap();
 
