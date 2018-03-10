@@ -92,6 +92,8 @@ impl Cpu {
             0b000000 => {
                 match instruction.special_opcode() {
                     0b000000 => self.op_sll(sa, rt, rd),
+                    0b101011 => self.op_sltu(rs, rt, rd),
+                    0b100001 => self.op_addu(rs, rt, rd),
                     0b100101 => self.op_or(rs, rt, rd),
                     _ => panic!("\n\nUnhandled SPECIAL instruction: {:06b}\n\n", instruction.special_opcode())
                 }
@@ -116,6 +118,18 @@ impl Cpu {
 
     fn op_sll(&mut self, sa: u32, rt: u32, rd: u32) {
         let res = self.reg(rt) << sa;
+
+        self.set_reg(rd, res);
+    }
+
+    fn op_sltu(&mut self, rs: u32, rt: u32, rd: u32) {
+        let res = self.reg(rs) < self.reg(rt);
+
+        self.set_reg(rd, res as u32);
+    }
+
+    fn op_addu(&mut self, rs: u32, rt: u32, rd: u32) {
+        let res = self.reg(rs).wrapping_add(self.reg(rt));
 
         self.set_reg(rd, res);
     }
