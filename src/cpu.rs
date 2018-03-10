@@ -124,7 +124,9 @@ impl Cpu {
         let res = self.reg(rt);
 
         match rd {
+            3 | 5 | 6 | 7 | 9 | 11 => if res != 0 { panic!("\n\nUnhandled MTC0 instruction: {:b}\n\n", res) }, 
             12 => self.sr = res,
+            13 => if res != 0 { panic!("\n\nTry to write data to CAUSE (only-read register) {:b}\n\n", res) },
             _ => panic!("\n\nUnhandled MTC0 instruction: {:05b}\n\n", rd)
         }
     }

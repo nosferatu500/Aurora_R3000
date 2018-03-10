@@ -31,6 +31,6 @@ impl Bios {
         let b2 = self.data[offset + 2] as u32;
         let b3 = self.data[offset + 3] as u32;
 
-        b0 | (b1 << 8 ) | (b2 << 16 ) | (b3 << 24 )
+        b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
     }
 }

@@ -1,4 +1,5 @@
 use bios::Bios;
+use ram::Ram;
 
 mod map {
     pub struct Range(u32, u32);
@@ -17,6 +18,8 @@ mod map {
 
     pub const BIOS: Range = Range(0xbfc00000, 512 * 1024);
 
+    pub const RAM: Range = Range(0xa0000000, 2 * 1024 * 1024);
+
     pub const MEM_CONTROL: Range = Range(0x1f801000, 36);
 
     pub const RAM_SIZE: Range = Range(0x1f801060, 4);
@@ -26,12 +29,14 @@ mod map {
 
 pub struct Interconnect {
     bios: Bios,
+    ram: Ram,
 }
 
 impl Interconnect {
     pub fn new(bios: Bios) -> Interconnect {
         Interconnect {
             bios: bios,
+            ram: Ram::new(),
         }
     }
 
@@ -49,6 +54,13 @@ impl Interconnect {
                     panic!("Expansion 2 has incorrect address: {:#08x}", value);
                 },
                 _ => println!("Unimplemented MEM_CONTROL register: {:#08x}", addr),
+            }
+            return;
+        }
+
+        if let Some(offset) = map::RAM.contains(addr) {
+            match offset {
+                _ => println!("Unimplemented RAM control yet. Register: {:#08x}", addr),
             }
             return;
         }
@@ -77,6 +89,10 @@ impl Interconnect {
         
         if let Some(offset) = map::BIOS.contains(addr) {
             return self.bios.load32(offset);
+        }
+
+        if let Some(offset) = map::RAM.contains(addr) {
+            return self.ram.load32(offset);
         }
 
         panic!("Unhandled fetch 32bit address {:08x}", addr);
