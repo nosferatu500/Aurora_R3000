@@ -159,6 +159,7 @@ impl Cpu {
                     0b100001 => self.op_addu(rs, rt, rd),
                     0b100011 => self.op_subu(rs, rt, rd),
                     0b100101 => self.op_or(rs, rt, rd),
+                    0b100110 => self.op_xor(rs, rt, rd),
                     0b100111 => self.op_nor(rs, rt, rd),
                     0b101010 => self.op_slt(rs, rt, rd),
                     _ => panic!("\n\nUnhandled SPECIAL instruction: {:06b}\n\n", instruction.special_opcode())
@@ -389,6 +390,12 @@ impl Cpu {
         let mode = self.sr & 0x3f;
         self.sr &= !0x3f;
         self.sr |= mode << 2;
+    }
+
+    fn op_xor(&mut self, rs: u32, rt: u32, rd: u32) {
+        let res = self.reg(rs) ^ self.reg(rt);
+
+        self.set_reg(rd, res);
     }
 
     fn op_or(&mut self, rs: u32, rt: u32, rd: u32) {

@@ -52,6 +52,8 @@ mod map {
     pub const TIMERS: Range = Range(0x1f801100, 48);   
 
     pub const DMA: Range = Range(0x1f801080, 128);   
+
+    pub const GPU: Range = Range(0x1f801810, 8);   
 }
 
 pub struct Interconnect {
@@ -122,6 +124,13 @@ impl Interconnect {
             return;
         }
 
+        if let Some(offset) = map::INTERRUPT_CONTROL.contains(masked_address) {
+            match offset {
+                _ => println!("Unimplemented INTERRUPT_CONTROL yet. Register: {:#08x} : {:08x}", offset, value),
+            }
+            return;
+        }
+
         panic!("Unaligned store 16bit address {:08x}", masked_address);
     }
 
@@ -138,6 +147,11 @@ impl Interconnect {
 
         if let Some(offset) = map::SPU.contains(masked_address) {
             println!("Unimplemented SPU register: {:#08x}", offset);
+            return 0;
+        }
+
+        if let Some(offset) = map::INTERRUPT_CONTROL.contains(masked_address) {
+            println!("Unimplemented INTERRUPT_CONTROL yet. Register: {:#08x}", offset);
             return 0;
         }
 
@@ -189,8 +203,18 @@ impl Interconnect {
             return;
         }
 
+        if let Some(offset) = map::TIMERS.contains(masked_address) {
+            println!("Unimplemented TIMERS register: {:#08x}", offset);
+            return;
+        }
+
         if let Some(offset) = map::DMA.contains(masked_address) {
             println!("Unimplemented DMA yet. Register: {:#08x} : {:08x}", offset, value);
+            return;
+        }
+
+        if let Some(offset) = map::GPU.contains(masked_address) {
+            println!("Unimplemented GPU yet. Register: {:#08x} : {:08x}", offset, value);
             return;
         }
 
@@ -220,6 +244,13 @@ impl Interconnect {
         if let Some(offset) = map::DMA.contains(masked_address) {
             println!("Unimplemented DMA yet. Register: {:#08x}", offset);
             return 0;
+        }
+
+        if let Some(offset) = map::GPU.contains(masked_address) {
+            return match offset {
+                4 => 0x10000000,
+                _ => 0,
+            }
         }
 
         panic!("Unhandled fetch 32bit address {:08x}", masked_address);
