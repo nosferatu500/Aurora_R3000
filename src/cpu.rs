@@ -3,9 +3,9 @@ use instruction::Instruction;
 
 pub struct Cpu {
     pc: u32,
+    next_pc: u32,
     regs: [u32; 32],
     inter: Interconnect,
-    next_instruction: Instruction,
 
     out_regs: [u32; 32],    
 
@@ -15,6 +15,12 @@ pub struct Cpu {
 
     hi: u32,
     lo: u32,
+
+    current_pc: u32,
+
+    cause: u32,
+
+    epc: u32,
 }
 
 impl Cpu {
@@ -23,11 +29,13 @@ impl Cpu {
 
         regs[0] = 0;
 
+        let pc = 0xbfc00000; 
+
         Cpu {
-            pc: 0xbfc00000,
+            pc,
+            next_pc: pc.wrapping_add(4),
             regs,
             inter,
-            next_instruction: Instruction::new(0x0),
 
             out_regs: regs,
 
@@ -37,6 +45,12 @@ impl Cpu {
 
             hi: 0xdeadbeef,
             lo: 0xdeadbeef,
+
+            current_pc: 0xdeadbeef,
+
+            cause: 0xdeadbeef,
+
+            epc: 0xdeadbeef,
         }
     }
 
@@ -50,17 +64,13 @@ impl Cpu {
     }
 
     pub fn run_next_instruction(&mut self) {
-        let pc = self.pc;
+        let instruction = self.load32(self.pc);
 
-        //Emulate delay slot.
-        let instruction = Instruction::new(self.next_instruction.data);
-
-        let data = self.load32(pc);
+        self.current_pc = self.pc;
 
         // Wrapping_add for overflow issue.
-        self.pc = pc.wrapping_add(4);
-
-        self.next_instruction = Instruction::new(data);
+        self.pc = self.next_pc;
+        self.next_pc = self.next_pc.wrapping_add(4);
 
         //Emulate load delay slot.
         let (reg, value) = self.load;
@@ -68,7 +78,7 @@ impl Cpu {
 
         self.load = (0, 0);
 
-        self.decode_and_execute(instruction);
+        self.decode_and_execute(Instruction::new(instruction));
 
         self.regs = self.out_regs;
     }
@@ -118,9 +128,11 @@ impl Cpu {
                     0b000011 => self.op_sra(sa, rt, rd),
                     0b001000 => self.op_jr(rs),
                     0b001001 => self.op_jalr(rs, rd),
-                    0b001100 => self.op_syscall(rs, rd),
+                    0b001100 => self.op_syscall(),
                     0b010000 => self.op_mfhi(rd),
+                    0b010001 => self.op_mthi(rs),
                     0b010010 => self.op_mflo(rd),
+                    0b010011 => self.op_mtlo(rs),
                     0b011010 => self.op_div(rs, rt),
                     0b011011 => self.op_divu(rs, rt),
                     0b100000 => self.op_add(rs, rt, rd),
@@ -144,9 +156,10 @@ impl Cpu {
             },
             0b010000 => {
                 match instruction.cop_opcode() {
-                    0b00000 => self.op_mfc0(rt, rd),
-                    0b00100 => self.op_mtc0(rt, rd),
-                    _ => panic!("\n\nUnhandled COP0 instruction: {:05b}\n\n", instruction.cop_opcode())
+                    0b000000 => self.op_mfc0(rt, rd),
+                    0b000100 => self.op_mtc0(rt, rd),
+                    0b010000 => self.op_rfe(instruction.data),
+                    _ => panic!("\n\nUnhandled COP0 instruction: {:06b}\n\n", instruction.cop_opcode())
                 }
             },
             0b000010 => self.op_j(target),
@@ -191,17 +204,17 @@ impl Cpu {
     }
 
     fn op_jr(&mut self, rs: u32) {
-        self.pc = self.reg(rs);
+        self.next_pc = self.reg(rs);
     }
 
     fn op_jalr(&mut self, rs: u32, rd: u32) {
-        let pc = self.pc;
+        let pc = self.next_pc;
         self.set_reg(rd, pc);
-        self.pc = self.reg(rs);
+        self.next_pc = self.reg(rs);
     }
 
-    fn op_syscall(&mut self, rs: u32, rd: u32) {
-
+    fn op_syscall(&mut self) {
+        self.exception(Exception::SysCall);
     }
 
     fn op_mfhi(&mut self, rd: u32) {
@@ -209,9 +222,17 @@ impl Cpu {
         self.set_reg(rd, hi);
     }
 
+    fn op_mthi(&mut self, rs: u32) {
+        self.hi = self.reg(rs)
+    }
+
     fn op_mflo(&mut self, rd: u32) {
         let lo = self.lo;
         self.set_reg(rd, lo);
+    }
+
+    fn op_mtlo(&mut self, rs: u32) {
+        self.lo = self.reg(rs)
     }
 
     fn op_div(&mut self, rs: u32, rt: u32) {
@@ -287,7 +308,8 @@ impl Cpu {
     fn op_mfc0(&mut self, rt: u32, rd: u32) {
         let value = match rd {
             12 => self.sr,
-            13 => panic!("\n\nTry to write data to CAUSE (only-read register) {:b}\n\n", rd),
+            13 => self.cause,
+            14 => self.epc,
             _ => panic!("\n\nUnhandled MTC0 instruction: {:05b}\n\n", rd)
         };
 
@@ -305,6 +327,17 @@ impl Cpu {
         }
     }
 
+    fn op_rfe(&mut self, data: u32) {
+        if data & 0x3f != 0b010000 {
+            panic!("Invalid COP0_RFE instruction: {}", data);
+        }
+
+        //Restore from exception mode.
+        let mode = self.sr & 0x3f;
+        self.sr &= !0x3f;
+        self.sr |= mode << 2;
+    }
+
     fn op_or(&mut self, rs: u32, rt: u32, rd: u32) {
         let res = self.reg(rs) | self.reg(rt);
 
@@ -318,13 +351,13 @@ impl Cpu {
     }
 
     fn op_j(&mut self, target: u32) {
-        self.pc = target << 2 | (self.pc & 0xf0000000);
+        self.next_pc = target << 2 | (self.pc & 0xf0000000);
     }
 
     fn op_jal(&mut self, target: u32) {
-        let pc = self.pc;
+        let pc = self.next_pc;
 
-        self.pc = target << 2 | (self.pc & 0xf0000000);
+        self.next_pc = target << 2 | (self.pc & 0xf0000000);
 
         self.set_reg(31, pc);
     }
@@ -367,7 +400,7 @@ impl Cpu {
 
     fn op_bltzal(&mut self, rs: u32, rt: u32, imm_se: u32) {
         let value = self.reg(rs);
-        let pc = self.pc;
+        let pc = self.next_pc;
 
         self.set_reg(31, pc);
 
@@ -378,7 +411,7 @@ impl Cpu {
 
     fn op_bgezal(&mut self, rs: u32, rt: u32, imm_se: u32) {
         let value = self.reg(rs);
-        let pc = self.pc;
+        let pc = self.next_pc;
 
         self.set_reg(31, pc);
 
@@ -524,13 +557,29 @@ impl Cpu {
     fn branch(&mut self, offset: u32) {
         let offset = offset << 2;
 
-        let mut pc = self.pc;
-
-        pc = pc.wrapping_add(offset);
-
-        //Because we have overhead in run_next_instruction()
-        pc = pc.wrapping_sub(4);
-        
-        self.pc = pc;
+        self.next_pc = self.pc.wrapping_add(offset);
     }
+
+    fn exception(&mut self, cause: Exception) {
+        let handler = match self.sr & (1 << 22) != 0 {
+            true => 0xfbc00180,
+            false => 0x80000080,
+        };
+
+        //Switch to exception mode.
+        let mode = self.sr & 0x3f;
+        self.sr &= 0x3f;
+        self.sr |= (mode << 2) & 0x3f;
+
+        self.cause = (cause as u32) << 2;
+
+        self.epc = self.current_pc;
+
+        self.pc = handler;
+        self.next_pc = self.pc.wrapping_add(4);
+    }
+}
+
+enum Exception {
+    SysCall = 0x8,
 }
