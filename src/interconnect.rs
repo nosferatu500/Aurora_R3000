@@ -41,6 +41,11 @@ mod map {
     pub const RAM_SIZE: Range = Range(0x1f801060, 4);
 
     pub const CACHE_CONTROL: Range = Range(0xfffe0130, 4);    
+
+    pub const SPU: Range = Range(0x1f801c00, 640);    
+
+    pub const EXPANSION_1: Range = Range(0x1f000000, 512 * 1024);    
+    pub const EXPANSION_2: Range = Range(0x1f802000, 66);    
 }
 
 pub struct Interconnect {
@@ -56,9 +61,76 @@ impl Interconnect {
         }
     }
 
+    pub fn store8(&mut self, addr: u32, value: u8) {
+        let masked_address = map::mask_region(addr);
+
+        if let Some(offset) = map::EXPANSION_2.contains(masked_address) {
+            println!("Unimplemented EXPANSION_2 register: {:#08x}", masked_address);
+            return;
+        }
+
+        if let Some(offset) = map::RAM.contains(masked_address) {
+            return self.ram.store8(offset, value);
+        }
+
+        panic!("Unaligned store 8bit address {:08x}", addr);
+    }
+
+    pub fn load8(&self, addr: u32) -> u8 {
+        let masked_address = map::mask_region(addr);
+        
+        if let Some(offset) = map::BIOS.contains(masked_address) {
+            return self.bios.load8(offset);
+        }
+
+        if let Some(offset) = map::RAM.contains(masked_address) {
+            return self.ram.load8(offset);
+        }
+        
+        if let Some(offset) = map::EXPANSION_1.contains(masked_address) {
+            println!("Unimplemented EXPANSION_1 register: {:#08x}", masked_address);
+            return 0xff;
+        }
+
+        panic!("Unhandled fetch 8bit address {:08x}", addr);
+    }
+
+    pub fn store16(&mut self, addr: u32, value: u16) {
+        if addr % 2 != 0 {
+            panic!("Address is not equel for 16bit address {:08x}", addr);    
+        }
+
+        let masked_address = map::mask_region(addr);
+
+        if let Some(offset) = map::SPU.contains(masked_address) {
+            println!("Unimplemented SPU register: {:#08x}", masked_address);
+            return;
+        }
+
+        if let Some(offset) = map::RAM.contains(masked_address) {
+            return self.ram.store16(offset, value);
+        }
+
+        panic!("Unaligned store 16bit address {:08x}", masked_address);
+    }
+
+    pub fn load16(&self, addr: u32) -> u16 {
+        if addr % 2 != 0 {
+            panic!("Address is not equel for 16bit address {:08x}", addr);    
+        }
+
+        let masked_address = map::mask_region(addr);
+
+        if let Some(offset) = map::RAM.contains(masked_address) {
+            return self.ram.load16(offset);
+        }
+
+        panic!("Unhandled fetch 16bit address {:08x}", addr);
+    }
+
     pub fn store32(&mut self, addr: u32, value: u32) {
         if addr % 4 != 0 {
-            panic!("Unaligned store 32bit address {:08x}", addr);    
+            panic!("Address is not equel for 32bit address {:08x}", addr);    
         }
 
         let masked_address = map::mask_region(addr);
@@ -77,10 +149,7 @@ impl Interconnect {
         }
 
         if let Some(offset) = map::RAM.contains(masked_address) {
-            match offset {
-                _ => println!("Unimplemented RAM control yet. Register: {:#08x}", masked_address),
-            }
-            return;
+            return self.ram.store32(offset, value);
         }
 
         if let Some(offset) = map::RAM_SIZE.contains(masked_address) {
@@ -102,7 +171,7 @@ impl Interconnect {
 
     pub fn load32(&self, addr: u32) -> u32 {
         if addr % 4 != 0 {
-            panic!("Unaligned load 32bit address {:08x}", addr);    
+            panic!("Address is not equel for 32bit address {:08x}", addr);    
         }
 
         let masked_address = map::mask_region(addr);

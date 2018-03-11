@@ -67,6 +67,22 @@ impl Cpu {
         self.regs = self.out_regs;
     }
 
+    fn store8(&mut self, addr: u32, value: u8) {
+        self.inter.store8(addr, value)
+    }
+
+    fn load8(&self, addr: u32) -> u8 {
+        self.inter.load8(addr)
+    }
+
+    fn store16(&mut self, addr: u32, value: u16) {
+        self.inter.store16(addr, value)
+    }
+
+    fn load16(&self, addr: u32) -> u16 {
+        self.inter.load16(addr)
+    }
+
     fn store32(&mut self, addr: u32, value: u32) {
         self.inter.store32(addr, value)
     }
@@ -86,12 +102,13 @@ impl Cpu {
 
         let imm_se = instruction.imm_se();
 
-        let target = instruction.target();        
+        let target = instruction.target(); 
 
         match instruction.opcode() {
             0b000000 => {
                 match instruction.special_opcode() {
                     0b000000 => self.op_sll(sa, rt, rd),
+                    0b001000 => self.op_jr(rs),
                     0b101011 => self.op_sltu(rs, rt, rd),
                     0b100001 => self.op_addu(rs, rt, rd),
                     0b100101 => self.op_or(rs, rt, rd),
@@ -105,12 +122,18 @@ impl Cpu {
                 }
             },
             0b000010 => self.op_j(target),
+            0b000011 => self.op_jal(target),
+            0b000100 => self.op_beq(rs, rt, imm_se),
             0b000101 => self.op_bne(rs, rt, imm_se),
             0b001000 => self.op_addi(rs, rt, imm_se),
             0b001001 => self.op_addiu(rs, rt, imm_se),
+            0b001100 => self.op_andi(rs, rt, imm),
             0b001101 => self.op_ori(rs, rt, imm),
             0b001111 => self.op_lui(rt, imm),
+            0b100000 => self.op_lb(rs, rt, imm_se),
             0b100011 => self.op_lw(rs, rt, imm_se),
+            0b101000 => self.op_sb(rs, rt, imm_se),
+            0b101001 => self.op_sh(rs, rt, imm_se),
             0b101011 => self.op_sw(rs, rt, imm_se),
             _ => panic!("\n\nUnhandled COMMON instruction: {:06b}\n\n", instruction.opcode())
         }
@@ -120,6 +143,10 @@ impl Cpu {
         let res = self.reg(rt) << sa;
 
         self.set_reg(rd, res);
+    }
+
+    fn op_jr(&mut self, rs: u32) {
+        self.pc = self.reg(rs);
     }
 
     fn op_sltu(&mut self, rs: u32, rt: u32, rd: u32) {
@@ -155,6 +182,20 @@ impl Cpu {
         self.pc = target << 2 | (self.pc & 0xf0000000);
     }
 
+    fn op_jal(&mut self, target: u32) {
+        let pc = self.pc;
+
+        self.pc = target << 2 | (self.pc & 0xf0000000);
+
+        self.set_reg(31, pc);
+    }
+
+    fn op_beq(&mut self, rs: u32, rt: u32, imm_se: u32) {
+        if self.reg(rs) == self.reg(rt) {
+            self.branch(imm_se);
+        }
+    }
+
     fn op_bne(&mut self, rs: u32, rt: u32, imm_se: u32) {
         if self.reg(rs) != self.reg(rt) {
             self.branch(imm_se);
@@ -179,6 +220,12 @@ impl Cpu {
         self.set_reg(rt, res);
     }
 
+    fn op_andi(&mut self, rs: u32, rt: u32, imm: u32) {
+        let res = self.reg(rs) & imm;
+
+        self.set_reg(rt, res);
+    }
+
     fn op_ori(&mut self, rs: u32, rt: u32, imm: u32) {
         let res = self.reg(rs) | imm;
 
@@ -192,6 +239,19 @@ impl Cpu {
     }
 
     // Incomplete probably?
+    fn op_lb(&mut self, base: u32, rt: u32, offset: u32) {
+        if self.sr & 0x10000 != 0 {
+            println!("Ignoring load while cache is isolated");
+            return;
+        }
+        
+        let addr = self.reg(base).wrapping_add(offset);
+        let value = self.load8(addr) as i8;
+
+        self.load = (rt, value as u32);
+    }
+
+    // Incomplete probably?
     fn op_lw(&mut self, base: u32, rt: u32, offset: u32) {
         if self.sr & 0x10000 != 0 {
             println!("Ignoring load while cache is isolated");
@@ -202,6 +262,32 @@ impl Cpu {
         let value = self.load32(addr);
 
         self.load = (rt, value);
+    }
+
+    // Incomplete probably?
+    fn op_sb(&mut self, base: u32, rt: u32, offset: u32) {
+        if self.sr & 0x10000 != 0 {
+            println!("Ignoring store while cache is isolated");
+            return;
+        }
+        
+        let addr = self.reg(base).wrapping_add(offset);
+        let value = self.reg(rt);
+
+        self.store8(addr, value as u8);
+    }
+
+    // Incomplete probably?
+    fn op_sh(&mut self, base: u32, rt: u32, offset: u32) {
+        if self.sr & 0x10000 != 0 {
+            println!("Ignoring store while cache is isolated");
+            return;
+        }
+        
+        let addr = self.reg(base).wrapping_add(offset);
+        let value = self.reg(rt);
+
+        self.store16(addr, value as u16);
     }
 
     // Incomplete probably?
