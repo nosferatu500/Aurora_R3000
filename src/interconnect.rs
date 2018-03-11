@@ -16,9 +16,25 @@ mod map {
         }
     }
 
-    pub const BIOS: Range = Range(0xbfc00000, 512 * 1024);
+    const REGION_MASK: [u32; 8] = [
+        //KUSEG: 2048MB
+        0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
+        //KSEG0: 512MB
+        0x7fffffff,
+        //KSEG1: 512MB
+        0x1fffffff,
+        //KSEG2: 1024MB
+        0xffffffff, 0xffffffff,
+    ];
 
-    pub const RAM: Range = Range(0xa0000000, 2 * 1024 * 1024);
+    pub fn mask_region(addr: u32) -> u32 {
+        let index = (addr >> 29) as usize;
+        addr & REGION_MASK[index]
+    }
+
+    pub const BIOS: Range = Range(0x1fc00000, 512 * 1024);
+
+    pub const RAM: Range = Range(0x00000000, 2 * 1024 * 1024);
 
     pub const MEM_CONTROL: Range = Range(0x1f801000, 36);
 
@@ -45,7 +61,9 @@ impl Interconnect {
             panic!("Unaligned store 32bit address {:08x}", addr);    
         }
 
-        if let Some(offset) = map::MEM_CONTROL.contains(addr) {
+        let masked_address = map::mask_region(addr);
+
+        if let Some(offset) = map::MEM_CONTROL.contains(masked_address) {
             match offset {
                 0 => if value != 0x1f000000 {
                     panic!("Expansion 1 has incorrect address: {:#08x}", value);
@@ -53,48 +71,50 @@ impl Interconnect {
                 4 => if value != 0x1f802000 {
                     panic!("Expansion 2 has incorrect address: {:#08x}", value);
                 },
-                _ => println!("Unimplemented MEM_CONTROL register: {:#08x}", addr),
+                _ => println!("Unimplemented MEM_CONTROL register: {:#08x}", masked_address),
             }
             return;
         }
 
-        if let Some(offset) = map::RAM.contains(addr) {
+        if let Some(offset) = map::RAM.contains(masked_address) {
             match offset {
-                _ => println!("Unimplemented RAM control yet. Register: {:#08x}", addr),
+                _ => println!("Unimplemented RAM control yet. Register: {:#08x}", masked_address),
             }
             return;
         }
 
-        if let Some(offset) = map::RAM_SIZE.contains(addr) {
+        if let Some(offset) = map::RAM_SIZE.contains(masked_address) {
             match offset {
-                _ => println!("Unimplemented RAM_SIZE control yet. Register: {:#08x}", addr),
+                _ => println!("Unimplemented RAM_SIZE control yet. Register: {:#08x}", masked_address),
             }
             return;
         }
 
-        if let Some(offset) = map::CACHE_CONTROL.contains(addr) {
+        if let Some(offset) = map::CACHE_CONTROL.contains(masked_address) {
             match offset {
-                _ => println!("Unimplemented CACHE_CONTROL yet. Register: {:#08x}", addr),
+                _ => println!("Unimplemented CACHE_CONTROL yet. Register: {:#08x}", masked_address),
             }
             return;
         }
 
-        panic!("Unhandled store 32bit address {:08x}", addr);
+        panic!("Unhandled store 32bit address {:08x}", masked_address);
     }
 
     pub fn load32(&self, addr: u32) -> u32 {
         if addr % 4 != 0 {
             panic!("Unaligned load 32bit address {:08x}", addr);    
         }
+
+        let masked_address = map::mask_region(addr);
         
-        if let Some(offset) = map::BIOS.contains(addr) {
+        if let Some(offset) = map::BIOS.contains(masked_address) {
             return self.bios.load32(offset);
         }
 
-        if let Some(offset) = map::RAM.contains(addr) {
+        if let Some(offset) = map::RAM.contains(masked_address) {
             return self.ram.load32(offset);
         }
 
-        panic!("Unhandled fetch 32bit address {:08x}", addr);
+        panic!("Unhandled fetch 32bit address {:08x}", masked_address);
     }
 }
