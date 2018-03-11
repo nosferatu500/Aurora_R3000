@@ -21,6 +21,9 @@ pub struct Cpu {
     cause: u32,
 
     epc: u32,
+
+    branch: bool,
+    delay_slot: bool,
 }
 
 impl Cpu {
@@ -51,6 +54,9 @@ impl Cpu {
             cause: 0xdeadbeef,
 
             epc: 0xdeadbeef,
+
+            branch: false,
+            delay_slot: false,
         }
     }
 
@@ -68,6 +74,11 @@ impl Cpu {
 
         self.current_pc = self.pc;
 
+        if self.current_pc % 4 != 0 {
+            self.exception(Exception::LoadAddressError);
+            return;
+        }
+
         // Wrapping_add for overflow issue.
         self.pc = self.next_pc;
         self.next_pc = self.next_pc.wrapping_add(4);
@@ -77,6 +88,9 @@ impl Cpu {
         self.set_reg(reg, value);
 
         self.load = (0, 0);
+
+        self.delay_slot = self.branch;
+        self.branch = false;
 
         self.decode_and_execute(Instruction::new(instruction));
 
@@ -205,12 +219,16 @@ impl Cpu {
 
     fn op_jr(&mut self, rs: u32) {
         self.next_pc = self.reg(rs);
+
+        self.branch = true;
     }
 
     fn op_jalr(&mut self, rs: u32, rd: u32) {
         let pc = self.next_pc;
         self.set_reg(rd, pc);
         self.next_pc = self.reg(rs);
+
+        self.branch = true;
     }
 
     fn op_syscall(&mut self) {
@@ -273,12 +291,12 @@ impl Cpu {
         let lhs = self.reg(rs) as i32;
         let rhs = self.reg(rt) as i32;
 
-        let res = match lhs.checked_add(rhs) {
-            Some(res) => res as u32,
-            None => panic!("ADD is overflow."),
+        match lhs.checked_add(rhs) {
+            Some(res) => self.set_reg(rd, res as u32),
+            None => self.exception(Exception::Overflow),
         };
 
-        self.set_reg(rd, res);
+        
     }
 
     fn op_and(&mut self, rs: u32, rt: u32, rd: u32) {
@@ -352,6 +370,8 @@ impl Cpu {
 
     fn op_j(&mut self, target: u32) {
         self.next_pc = target << 2 | (self.pc & 0xf0000000);
+
+        self.branch = true;
     }
 
     fn op_jal(&mut self, target: u32) {
@@ -360,6 +380,8 @@ impl Cpu {
         self.next_pc = target << 2 | (self.pc & 0xf0000000);
 
         self.set_reg(31, pc);
+
+        self.branch = true;
     }
 
     fn op_beq(&mut self, rs: u32, rt: u32, imm_se: u32) {
@@ -433,11 +455,9 @@ impl Cpu {
         let reg = self.reg(rs) as i32;
 
         let res = match reg.checked_add(imm) {
-            Some(res) => res as u32,
-            None => panic!("ADDI is overflow."),
+            Some(res) => self.set_reg(rt, res as u32),
+            None => self.exception(Exception::Overflow),
         };
-
-        self.set_reg(rt, res);
     }
 
     fn op_addiu(&mut self, rs: u32, rt: u32, imm_se: u32) {
@@ -508,11 +528,17 @@ impl Cpu {
             println!("Ignoring load while cache is isolated");
             return;
         }
-        
-        let addr = self.reg(base).wrapping_add(offset);
-        let value = self.load32(addr);
 
-        self.load = (rt, value);
+        let addr = self.reg(base).wrapping_add(offset);
+
+        if addr % 4 == 0 {
+            let value = self.load32(addr);
+
+            self.load = (rt, value);
+        } else {
+            self.exception(Exception::LoadAddressError)
+        }
+        
     }
 
     // Incomplete probably?
@@ -536,9 +562,14 @@ impl Cpu {
         }
         
         let addr = self.reg(base).wrapping_add(offset);
-        let value = self.reg(rt);
 
-        self.store16(addr, value as u16);
+        if addr % 2 == 0 {
+            let value = self.reg(rt);
+
+            self.store16(addr, value as u16);
+        } else {
+            self.exception(Exception::StoreAddressError);
+        }
     }
 
     // Incomplete probably?
@@ -549,15 +580,21 @@ impl Cpu {
         }
         
         let addr = self.reg(base).wrapping_add(offset);
-        let value = self.reg(rt);
-
-        self.store32(addr, value);
+        
+        if addr % 2 == 0 {
+            let value = self.reg(rt);
+            self.store32(addr, value);
+        } else {
+            self.exception(Exception::StoreAddressError);
+        }
     }
 
     fn branch(&mut self, offset: u32) {
         let offset = offset << 2;
 
         self.next_pc = self.pc.wrapping_add(offset);
+
+        self.branch = true;
     }
 
     fn exception(&mut self, cause: Exception) {
@@ -572,8 +609,12 @@ impl Cpu {
         self.sr |= (mode << 2) & 0x3f;
 
         self.cause = (cause as u32) << 2;
-
         self.epc = self.current_pc;
+
+        if self.delay_slot {
+            self.epc = self.epc.wrapping_sub(4);
+            self.cause |= 1 << 31;
+        }
 
         self.pc = handler;
         self.next_pc = self.pc.wrapping_add(4);
@@ -582,4 +623,7 @@ impl Cpu {
 
 enum Exception {
     SysCall = 0x8,
+    Overflow = 0xc,
+    LoadAddressError = 0x4,
+    StoreAddressError = 0x5,
 }
