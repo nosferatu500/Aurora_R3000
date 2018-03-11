@@ -50,6 +50,8 @@ mod map {
     pub const INTERRUPT_CONTROL: Range = Range(0x1f801070, 8);   
 
     pub const TIMERS: Range = Range(0x1f801100, 48);   
+
+    pub const DMA: Range = Range(0x1f801080, 128);   
 }
 
 pub struct Interconnect {
@@ -134,6 +136,11 @@ impl Interconnect {
             return self.ram.load16(offset);
         }
 
+        if let Some(offset) = map::SPU.contains(masked_address) {
+            println!("Unimplemented SPU register: {:#08x}", offset);
+            return 0;
+        }
+
         panic!("Unhandled fetch 16bit address {:08x}", addr);
     }
 
@@ -182,6 +189,11 @@ impl Interconnect {
             return;
         }
 
+        if let Some(offset) = map::DMA.contains(masked_address) {
+            println!("Unimplemented DMA yet. Register: {:#08x} : {:08x}", offset, value);
+            return;
+        }
+
         panic!("Unhandled store 32bit address {:08x}", masked_address);
     }
 
@@ -202,6 +214,11 @@ impl Interconnect {
 
         if let Some(offset) = map::INTERRUPT_CONTROL.contains(masked_address) {
             println!("Unimplemented INTERRUPT_CONTROL yet. Register: {:#08x}", offset);
+            return 0;
+        }
+
+        if let Some(offset) = map::DMA.contains(masked_address) {
+            println!("Unimplemented DMA yet. Register: {:#08x}", offset);
             return 0;
         }
 

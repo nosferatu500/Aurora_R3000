@@ -140,6 +140,9 @@ impl Cpu {
                     0b000000 => self.op_sll(sa, rt, rd),
                     0b000010 => self.op_srl(sa, rt, rd),
                     0b000011 => self.op_sra(sa, rt, rd),
+                    0b000100 => self.op_sllv(rs, rt, rd),
+                    0b000110 => self.op_srlv(rs, rt, rd),
+                    0b000111 => self.op_srav(rs, rt, rd),
                     0b001000 => self.op_jr(rs),
                     0b001001 => self.op_jalr(rs, rd),
                     0b001100 => self.op_syscall(),
@@ -147,6 +150,7 @@ impl Cpu {
                     0b010001 => self.op_mthi(rs),
                     0b010010 => self.op_mflo(rd),
                     0b010011 => self.op_mtlo(rs),
+                    0b011001 => self.op_multu(rs, rt),
                     0b011010 => self.op_div(rs, rt),
                     0b011011 => self.op_divu(rs, rt),
                     0b100000 => self.op_add(rs, rt, rd),
@@ -155,6 +159,7 @@ impl Cpu {
                     0b100001 => self.op_addu(rs, rt, rd),
                     0b100011 => self.op_subu(rs, rt, rd),
                     0b100101 => self.op_or(rs, rt, rd),
+                    0b100111 => self.op_nor(rs, rt, rd),
                     0b101010 => self.op_slt(rs, rt, rd),
                     _ => panic!("\n\nUnhandled SPECIAL instruction: {:06b}\n\n", instruction.special_opcode())
                 }
@@ -190,8 +195,10 @@ impl Cpu {
             0b001101 => self.op_ori(rs, rt, imm),
             0b001111 => self.op_lui(rt, imm),
             0b100000 => self.op_lb(rs, rt, imm_se),
+            0b100001 => self.op_lh(rs, rt, imm_se),
             0b100011 => self.op_lw(rs, rt, imm_se),
             0b100100 => self.op_lbu(rs, rt, imm_se),
+            0b100101 => self.op_lhu(rs, rt, imm_se),
             0b101000 => self.op_sb(rs, rt, imm_se),
             0b101001 => self.op_sh(rs, rt, imm_se),
             0b101011 => self.op_sw(rs, rt, imm_se),
@@ -215,6 +222,24 @@ impl Cpu {
         let res = (self.reg(rt) as i32) >> sa;
 
         self.set_reg(rd, res as u32);
+    }
+
+    fn op_sllv(&mut self, rs: u32, rt: u32, rd: u32) {
+        let res = self.reg(rt) << (self.reg(rs) & 0x1f);
+
+        self.set_reg(rd, res);
+    }
+
+    fn op_srav(&mut self, rs: u32, rt: u32, rd: u32) {
+        let res = (self.reg(rt) as i32) >> (self.reg(rs) & 0x1f);
+
+        self.set_reg(rd, res as u32);
+    }
+
+    fn op_srlv(&mut self, rs: u32, rt: u32, rd: u32) {
+        let res = self.reg(rt) >> (self.reg(rs) & 0x1f);
+
+        self.set_reg(rd, res);
     }
 
     fn op_jr(&mut self, rs: u32) {
@@ -251,6 +276,16 @@ impl Cpu {
 
     fn op_mtlo(&mut self, rs: u32) {
         self.lo = self.reg(rs)
+    }
+
+    fn op_multu(&mut self, rs: u32, rt: u32) {
+        let a = self.reg(rs) as u64;
+        let b = self.reg(rt) as u64;
+
+        let res = a * b;
+
+        self.hi = (res >> 32) as u32;
+        self.lo = res as u32;
     }
 
     fn op_div(&mut self, rs: u32, rt: u32) {
@@ -358,6 +393,12 @@ impl Cpu {
 
     fn op_or(&mut self, rs: u32, rt: u32, rd: u32) {
         let res = self.reg(rs) | self.reg(rt);
+
+        self.set_reg(rd, res);
+    }
+
+    fn op_nor(&mut self, rs: u32, rt: u32, rd: u32) {
+        let res = !(self.reg(rs) | self.reg(rt));
 
         self.set_reg(rd, res);
     }
@@ -509,6 +550,18 @@ impl Cpu {
         self.load = (rt, value as u32);
     }
 
+    fn op_lh(&mut self, base: u32, rt: u32, offset: u32) {
+        if self.sr & 0x10000 != 0 {
+            println!("Ignoring load while cache is isolated");
+            return;
+        }
+        
+        let addr = self.reg(base).wrapping_add(offset);
+        let value = self.load16(addr) as i16;
+
+        self.load = (rt, value as u32);
+    }
+
     // Incomplete probably?
     fn op_lbu(&mut self, base: u32, rt: u32, offset: u32) {
         if self.sr & 0x10000 != 0 {
@@ -518,6 +571,19 @@ impl Cpu {
         
         let addr = self.reg(base).wrapping_add(offset);
         let value = self.load8(addr);
+
+        self.load = (rt, value as u32);
+    }
+
+    // Incomplete probably?
+    fn op_lhu(&mut self, base: u32, rt: u32, offset: u32) {
+        if self.sr & 0x10000 != 0 {
+            println!("Ignoring load while cache is isolated");
+            return;
+        }
+        
+        let addr = self.reg(base).wrapping_add(offset);
+        let value = self.load16(addr);
 
         self.load = (rt, value as u32);
     }
