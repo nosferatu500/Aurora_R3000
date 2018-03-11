@@ -45,7 +45,9 @@ mod map {
     pub const SPU: Range = Range(0x1f801c00, 640);    
 
     pub const EXPANSION_1: Range = Range(0x1f000000, 512 * 1024);    
-    pub const EXPANSION_2: Range = Range(0x1f802000, 66);    
+    pub const EXPANSION_2: Range = Range(0x1f802000, 66);
+
+    pub const INTERRUPT_CONTROL: Range = Range(0x1f801070, 8);   
 }
 
 pub struct Interconnect {
@@ -154,14 +156,21 @@ impl Interconnect {
 
         if let Some(offset) = map::RAM_SIZE.contains(masked_address) {
             match offset {
-                _ => println!("Unimplemented RAM_SIZE control yet. Register: {:#08x}", masked_address),
+                _ => println!("Unimplemented RAM_SIZE control yet. Register: {:#08x}", offset),
             }
             return;
         }
 
         if let Some(offset) = map::CACHE_CONTROL.contains(masked_address) {
             match offset {
-                _ => println!("Unimplemented CACHE_CONTROL yet. Register: {:#08x}", masked_address),
+                _ => println!("Unimplemented CACHE_CONTROL yet. Register: {:#08x}", offset),
+            }
+            return;
+        }
+
+        if let Some(offset) = map::INTERRUPT_CONTROL.contains(masked_address) {
+            match offset {
+                _ => println!("Unimplemented INTERRUPT_CONTROL yet. Register: {:#08x} : {:08x}", offset, value),
             }
             return;
         }

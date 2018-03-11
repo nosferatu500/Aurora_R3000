@@ -21,6 +21,10 @@ impl Instruction {
         self.rs()
     }
 
+    pub fn regimm_condition(&self) -> u32 {
+        self.rt()
+    }
+
     pub fn rs(&self) -> u32 {
         (self.data >> 21) & 0x1f
     }
