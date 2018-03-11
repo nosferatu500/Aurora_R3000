@@ -146,14 +146,17 @@ impl Cpu {
                     0b001000 => self.op_jr(rs),
                     0b001001 => self.op_jalr(rs, rd),
                     0b001100 => self.op_syscall(),
+                    0b001101 => self.op_break(),
                     0b010000 => self.op_mfhi(rd),
                     0b010001 => self.op_mthi(rs),
                     0b010010 => self.op_mflo(rd),
                     0b010011 => self.op_mtlo(rs),
+                    0b011000 => self.op_mult(rs, rt),
                     0b011001 => self.op_multu(rs, rt),
                     0b011010 => self.op_div(rs, rt),
                     0b011011 => self.op_divu(rs, rt),
                     0b100000 => self.op_add(rs, rt, rd),
+                    0b100010 => self.op_sub(rs, rt, rd),
                     0b100100 => self.op_and(rs, rt, rd),
                     0b101011 => self.op_sltu(rs, rt, rd),
                     0b100001 => self.op_addu(rs, rt, rd),
@@ -179,6 +182,9 @@ impl Cpu {
                     0b000000 => self.op_mfc0(rt, rd),
                     0b000100 => self.op_mtc0(rt, rd),
                     0b010000 => self.op_rfe(instruction.data),
+                    0b010001 => self.op_cop1(),
+                    0b010010 => self.op_cop2(instruction.data),
+                    0b010011 => self.op_cop3(),
                     _ => panic!("\n\nUnhandled COP0 instruction: {:06b}\n\n", instruction.cop_opcode())
                 }
             },
@@ -194,6 +200,7 @@ impl Cpu {
             0b001011 => self.op_sltiu(rs, rt, imm_se),
             0b001100 => self.op_andi(rs, rt, imm),
             0b001101 => self.op_ori(rs, rt, imm),
+            0b001110 => self.op_xori(rs, rt, imm),
             0b001111 => self.op_lui(rt, imm),
             0b100000 => self.op_lb(rs, rt, imm_se),
             0b100001 => self.op_lh(rs, rt, imm_se),
@@ -243,6 +250,18 @@ impl Cpu {
         self.set_reg(rd, res);
     }
 
+    fn op_cop1(&mut self) {
+        self.exception(Exception::CoprocessorError);
+    }
+
+    fn op_cop2(&mut self, data: u32) {
+        panic!("Unimplemented GTE instruction: {:08x}", data);
+    }
+
+    fn op_cop3(&mut self) {
+        self.exception(Exception::CoprocessorError);
+    }
+
     fn op_jr(&mut self, rs: u32) {
         self.next_pc = self.reg(rs);
 
@@ -261,6 +280,10 @@ impl Cpu {
         self.exception(Exception::SysCall);
     }
 
+    fn op_break(&mut self) {
+        self.exception(Exception::Break);
+    }
+
     fn op_mfhi(&mut self, rd: u32) {
         let hi = self.hi;
         self.set_reg(rd, hi);
@@ -277,6 +300,16 @@ impl Cpu {
 
     fn op_mtlo(&mut self, rs: u32) {
         self.lo = self.reg(rs)
+    }
+
+    fn op_mult(&mut self, rs: u32, rt: u32) {
+        let a = (self.reg(rs) as i32) as i64;
+        let b = (self.reg(rt) as i32) as i64;
+
+        let res = (a * b) as u64;
+
+        self.hi = (res >> 32) as u32;
+        self.lo = res as u32;
     }
 
     fn op_multu(&mut self, rs: u32, rt: u32) {
@@ -331,8 +364,16 @@ impl Cpu {
             Some(res) => self.set_reg(rd, res as u32),
             None => self.exception(Exception::Overflow),
         };
+    }
 
-        
+    fn op_sub(&mut self, rs: u32, rt: u32, rd: u32) {
+        let lhs = self.reg(rs) as i32;
+        let rhs = self.reg(rt) as i32;
+
+        match lhs.checked_sub(rhs) {
+            Some(res) => self.set_reg(rd, res as u32),
+            None => self.exception(Exception::Overflow),
+        };
     }
 
     fn op_and(&mut self, rs: u32, rt: u32, rd: u32) {
@@ -538,6 +579,12 @@ impl Cpu {
         self.set_reg(rt, res);
     }
 
+    fn op_xori(&mut self, rs: u32, rt: u32, imm: u32) {
+        let res = self.reg(rs) ^ imm;
+
+        self.set_reg(rt, res);
+    }
+
     fn op_lui(&mut self, rt: u32, imm: u32) {
         let res = imm << 16;
 
@@ -699,4 +746,6 @@ enum Exception {
     Overflow = 0xc,
     LoadAddressError = 0x4,
     StoreAddressError = 0x5,
+    Break = 0x9,
+    CoprocessorError = 0xb,
 }
