@@ -12,6 +12,9 @@ pub struct Cpu {
     sr: u32,
 
     load: (u32, u32),
+
+    hi: u32,
+    lo: u32,
 }
 
 impl Cpu {
@@ -31,6 +34,9 @@ impl Cpu {
             sr: 0,
 
             load: (0, 0),
+
+            hi: 0xdeadbeef,
+            lo: 0xdeadbeef,
         }
     }
 
@@ -108,13 +114,22 @@ impl Cpu {
             0b000000 => {
                 match instruction.special_opcode() {
                     0b000000 => self.op_sll(sa, rt, rd),
+                    0b000010 => self.op_srl(sa, rt, rd),
+                    0b000011 => self.op_sra(sa, rt, rd),
                     0b001000 => self.op_jr(rs),
                     0b001001 => self.op_jalr(rs, rd),
+                    0b001100 => self.op_syscall(rs, rd),
+                    0b010000 => self.op_mfhi(rd),
+                    0b010010 => self.op_mflo(rd),
+                    0b011010 => self.op_div(rs, rt),
+                    0b011011 => self.op_divu(rs, rt),
                     0b100000 => self.op_add(rs, rt, rd),
                     0b100100 => self.op_and(rs, rt, rd),
                     0b101011 => self.op_sltu(rs, rt, rd),
                     0b100001 => self.op_addu(rs, rt, rd),
+                    0b100011 => self.op_subu(rs, rt, rd),
                     0b100101 => self.op_or(rs, rt, rd),
+                    0b101010 => self.op_slt(rs, rt, rd),
                     _ => panic!("\n\nUnhandled SPECIAL instruction: {:06b}\n\n", instruction.special_opcode())
                 }
             },
@@ -142,6 +157,8 @@ impl Cpu {
             0b000111 => self.op_bgtz(rs, rt, imm_se),
             0b001000 => self.op_addi(rs, rt, imm_se),
             0b001001 => self.op_addiu(rs, rt, imm_se),
+            0b001010 => self.op_slti(rs, rt, imm_se),
+            0b001011 => self.op_sltiu(rs, rt, imm_se),
             0b001100 => self.op_andi(rs, rt, imm),
             0b001101 => self.op_ori(rs, rt, imm),
             0b001111 => self.op_lui(rt, imm),
@@ -161,6 +178,18 @@ impl Cpu {
         self.set_reg(rd, res);
     }
 
+    fn op_srl(&mut self, sa: u32, rt: u32, rd: u32) {
+        let res = (self.reg(rt)) >> sa;
+
+        self.set_reg(rd, res);
+    }
+
+    fn op_sra(&mut self, sa: u32, rt: u32, rd: u32) {
+        let res = (self.reg(rt) as i32) >> sa;
+
+        self.set_reg(rd, res as u32);
+    }
+
     fn op_jr(&mut self, rs: u32) {
         self.pc = self.reg(rs);
     }
@@ -169,6 +198,54 @@ impl Cpu {
         let pc = self.pc;
         self.set_reg(rd, pc);
         self.pc = self.reg(rs);
+    }
+
+    fn op_syscall(&mut self, rs: u32, rd: u32) {
+
+    }
+
+    fn op_mfhi(&mut self, rd: u32) {
+        let hi = self.hi;
+        self.set_reg(rd, hi);
+    }
+
+    fn op_mflo(&mut self, rd: u32) {
+        let lo = self.lo;
+        self.set_reg(rd, lo);
+    }
+
+    fn op_div(&mut self, rs: u32, rt: u32) {
+        let n = self.reg(rs) as i32;
+        let d = self.reg(rt) as i32;
+
+        if d == 0 {
+            self.hi = n as u32;
+
+            if n >= 0 {
+                self.lo = 0xffffffff;
+            } else {
+                self.lo = 1;
+            }
+        } else if n as u32 == 0x80000000 && d == -1 {
+            self.hi = 0;
+            self.lo = 0x80000000;
+        } else {
+            self.hi = (n % d) as u32;
+            self.lo = (n / d) as u32;
+        }
+    }
+
+    fn op_divu(&mut self, rs: u32, rt: u32) {
+        let n = self.reg(rs);
+        let d = self.reg(rt);
+
+        if d == 0 {
+            self.hi = n;
+            self.lo = 0xffffffff;
+        } else {
+            self.hi = n % d;
+            self.lo = n / d;
+        }
     }
 
     fn op_add(&mut self, rs: u32, rt: u32, rd: u32) {
@@ -201,6 +278,12 @@ impl Cpu {
         self.set_reg(rd, res);
     }
 
+    fn op_subu(&mut self, rs: u32, rt: u32, rd: u32) {
+        let res = self.reg(rs).wrapping_sub(self.reg(rt));
+
+        self.set_reg(rd, res);
+    }
+
     fn op_mfc0(&mut self, rt: u32, rd: u32) {
         let value = match rd {
             12 => self.sr,
@@ -226,6 +309,12 @@ impl Cpu {
         let res = self.reg(rs) | self.reg(rt);
 
         self.set_reg(rd, res);
+    }
+
+    fn op_slt(&mut self, rs: u32, rt: u32, rd: u32) {
+        let res = (self.reg(rs) as i32) < (self.reg(rt) as i32);
+
+        self.set_reg(rd, res as u32);
     }
 
     fn op_j(&mut self, target: u32) {
@@ -322,6 +411,18 @@ impl Cpu {
         let res = self.reg(rs).wrapping_add(imm_se);
 
         self.set_reg(rt, res);
+    }
+
+    fn op_slti(&mut self, rs: u32, rt: u32, imm_se: u32) {
+        let res = (self.reg(rs) as i32) < imm_se as i32;
+
+        self.set_reg(rt, res as u32);
+    }
+
+    fn op_sltiu(&mut self, rs: u32, rt: u32, imm_se: u32) {
+        let res = (self.reg(rs)) < imm_se;
+
+        self.set_reg(rt, res as u32);
     }
 
     fn op_andi(&mut self, rs: u32, rt: u32, imm: u32) {
