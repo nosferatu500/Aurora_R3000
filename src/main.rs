@@ -5,6 +5,8 @@ mod interconnect;
 mod cpu;
 mod instruction;
 mod ram;
+mod dma;
+mod channel;
 
 use bios::*;
 use interconnect::*;

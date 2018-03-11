@@ -1,5 +1,8 @@
 use bios::Bios;
 use ram::Ram;
+use dma::Dma;
+use dma::Port;
+use channel::*;
 
 mod map {
     pub struct Range(u32, u32);
@@ -59,6 +62,7 @@ mod map {
 pub struct Interconnect {
     bios: Bios,
     ram: Ram,
+    dma: Dma,
 }
 
 impl Interconnect {
@@ -66,6 +70,7 @@ impl Interconnect {
         Interconnect {
             bios: bios,
             ram: Ram::new(),
+            dma: Dma::new(),
         }
     }
 
@@ -209,8 +214,7 @@ impl Interconnect {
         }
 
         if let Some(offset) = map::DMA.contains(masked_address) {
-            println!("Unimplemented DMA yet. Register: {:#08x} : {:08x}", offset, value);
-            return;
+            return self.set_dma_reg(offset, value);
         }
 
         if let Some(offset) = map::GPU.contains(masked_address) {
@@ -242,17 +246,176 @@ impl Interconnect {
         }
 
         if let Some(offset) = map::DMA.contains(masked_address) {
-            println!("Unimplemented DMA yet. Register: {:#08x}", offset);
-            return 0;
+            return self.dma_reg(offset);
         }
 
         if let Some(offset) = map::GPU.contains(masked_address) {
             return match offset {
-                4 => 0x10000000,
+                4 => 0x1c000000,
                 _ => 0,
             }
         }
 
         panic!("Unhandled fetch 32bit address {:08x}", masked_address);
+    }
+
+    fn dma_reg(&self, offset: u32) -> u32 {
+        let major = (offset & 0x70) >> 4;
+        let minor = offset & 0xf;
+
+        match major {
+            0 ... 6 => {
+                let channel = self.dma.channel(Port::from_index(major));
+
+                match minor {
+                    8 => channel.control(),
+                    _ => panic!("Unhandled DMA read {:x}", offset)
+                }
+            },
+            7 => {
+                match minor {
+                    0 => self.dma.control(),
+                    4 => self.dma.interrupt(),
+                    _ => panic!("Unhandled DMA read {:x}", offset)
+                }
+            },
+            _ => panic!("Unhandled DMA read {:x}", offset),
+        }
+    }
+
+    fn set_dma_reg(&mut self, offset: u32, value: u32) {
+        let major = (offset & 0x70) >> 4;
+        let minor = offset & 0xf;
+
+        let active_port = match major {
+            0 ... 6 => {
+                let port = Port::from_index(major);
+                let channel = self.dma.channel_mut(port);
+
+                match minor {
+                    0 => channel.set_base(value),
+                    4 => channel.set_block_control(value),
+                    8 => channel.set_control(value),
+                    _ => panic!("Unhandled DMA write {:x}", offset)
+                }
+
+                if channel.active() {
+                    Some(port)
+                } else {
+                    None
+                }
+            },
+            7 => {
+                match minor {
+                    0 => self.dma.set_control(value),
+                    4 => self.dma.set_interrupt(value),
+                    _ => panic!("Unhandled DMA write {:x}", offset)
+                }
+
+                None
+            },
+            _ => panic!("Unhandled DMA write {:x}", offset),
+        };
+
+        if let Some(port) = active_port {
+            self.do_dma(port);
+        }
+    }
+
+    fn do_dma(&mut self, port: Port) {
+        match self.dma.channel(port).sync() {
+            Sync::LinkedList => self.do_dma_linked_list(port),
+            _ => self.do_dma_block(port),
+        }
+    }
+
+    fn do_dma_linked_list(&mut self, port: Port) {
+        let channel = self.dma.channel_mut(port);
+
+        let mut addr = channel.base() & 0x1ffffc;
+
+        if channel.direction() == Direction::ToRam {
+            panic!("Invalid DMA direction for dma linked list");
+        }
+
+        if port != Port::GPU {
+            panic!("Attempted linked list DMA. Port: {}", port as u8);
+        }
+
+        loop {
+            let header = self.ram.load32(addr);
+
+            let mut remsz = header >> 24;
+
+            while remsz > 0 {
+                addr = (addr + 4) & 0x1ffffc;
+
+                let command = self.ram.load32(addr);
+
+                println!("GPU command: {:08x}", command);
+
+                remsz -= 1;
+            }
+
+            if header & 0x800000 != 0 {
+                break;
+            }
+
+            addr = header & 0x1ffffc;
+        }
+
+        channel.done();
+    }
+
+    fn do_dma_block(&mut self, port: Port) {
+        let channel = self.dma.channel_mut(port);
+
+        let increment: i32 = match channel.step() {
+            Step::Increment => 4,
+            Step::Decrement => -4,
+        };
+
+        let mut addr = channel.base();
+
+        let mut remsz = match channel.transfer_size() {
+            Some(n) => n,
+            None => panic!("Error DMA block transfer size")
+        };
+
+        while remsz > 0 {
+            let current_address = addr & 0x1ffffc;
+
+            match channel.direction() {
+                Direction::FromRam => {
+                    let source_word = self.ram.load32(current_address);
+
+                    match port {
+                        Port::GPU => println!("{:08x}", source_word),
+                        _ => panic!("Unhandled DMA destination port {}", port as u8),
+                    }
+                },
+                Direction::ToRam => {
+                    let source_word = match port {
+                        Port::Otc => match remsz {
+                            1 => 0xffffff,
+                            _ => addr.wrapping_sub(4) & 0x1fffff,
+                        },
+                        _ => panic!("Unhandled DMA src port {}", port as u8),
+                    };
+
+                    self.ram.store32(current_address, source_word);
+                }
+            }
+
+            if increment > 0 {
+                addr = addr.wrapping_add(4);
+            } else {
+                addr = addr.wrapping_sub(4);
+            }
+
+            remsz -= 1;
+        }
+
+        channel.done();
     }
 }
