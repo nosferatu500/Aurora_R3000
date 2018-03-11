@@ -204,14 +204,63 @@ impl Cpu {
             0b001111 => self.op_lui(rt, imm),
             0b100000 => self.op_lb(rs, rt, imm_se),
             0b100001 => self.op_lh(rs, rt, imm_se),
+            0b100010 => self.op_lwl(rs, rt, imm_se),
             0b100011 => self.op_lw(rs, rt, imm_se),
             0b100100 => self.op_lbu(rs, rt, imm_se),
             0b100101 => self.op_lhu(rs, rt, imm_se),
+            0b100110 => self.op_lwr(rs, rt, imm_se),
             0b101000 => self.op_sb(rs, rt, imm_se),
             0b101001 => self.op_sh(rs, rt, imm_se),
+            0b101010 => self.op_swl(rs, rt, imm_se),
+            0b101110 => self.op_swr(rs, rt, imm_se),
             0b101011 => self.op_sw(rs, rt, imm_se),
-            _ => panic!("\n\nUnhandled COMMON instruction: {:06b}\n\n", instruction.opcode())
+            0b110000 => self.op_lwc0(),
+            0b110001 => self.op_lwc1(),
+            0b110010 => self.op_lwc2(instruction.data),
+            0b110011 => self.op_lwc3(),
+            0b111000 => self.op_swc0(),
+            0b111001 => self.op_swc1(),
+            0b111010 => self.op_swc2(instruction.data),
+            0b111011 => self.op_swc3(),
+            _ => self.op_illegal(instruction.opcode()),
         }
+    }
+
+    fn op_illegal(&mut self, data: u32) {
+        println!("Illegal instruction: {:06b}", data);
+        self.exception(Exception::IllegalInstruction);
+    }
+
+    fn op_lwc0(&mut self) {
+        self.exception(Exception::CoprocessorError);
+    }
+
+    fn op_lwc1(&mut self) {
+        self.exception(Exception::CoprocessorError);
+    }
+
+    fn op_lwc2(&mut self, data: u32) {
+        panic!("Unimplemented GTE LWC2 instruction: {:08x}", data);
+    }
+
+    fn op_lwc3(&mut self) {
+        self.exception(Exception::CoprocessorError);
+    }
+
+    fn op_swc0(&mut self) {
+        self.exception(Exception::CoprocessorError);
+    }
+
+    fn op_swc1(&mut self) {
+        self.exception(Exception::CoprocessorError);
+    }
+
+    fn op_swc2(&mut self, data: u32) {
+        panic!("Unimplemented GTE SWC2 instruction: {:08x}", data);
+    }
+
+    fn op_swc3(&mut self) {
+        self.exception(Exception::CoprocessorError);
     }
 
     fn op_sll(&mut self, sa: u32, rt: u32, rd: u32) {
@@ -658,7 +707,82 @@ impl Cpu {
         } else {
             self.exception(Exception::LoadAddressError)
         }
-        
+    }
+
+    fn op_lwl(&mut self, base: u32, rt: u32, offset: u32) {
+        let addr = self.reg(base).wrapping_add(offset);
+
+        let current_value = self.out_regs[rt as usize];
+
+        let aligned_addr = addr & !3;
+        let aligned_word = self.load32(aligned_addr);
+
+        let value = match addr & 3 {
+            0 => (current_value & 0x00ffffff) | (aligned_word << 24),
+            1 => (current_value & 0x0000ffff) | (aligned_word << 16),
+            2 => (current_value & 0x000000ff) | (aligned_word << 8),
+            3 => (current_value & 0x00000000) | (aligned_word << 0),
+            _ => unreachable!(),
+        };
+
+        self.load = (rt, value);
+    }
+
+    fn op_swl(&mut self, base: u32, rt: u32, offset: u32) {
+        let addr = self.reg(base).wrapping_add(offset);
+
+        let current_value = self.out_regs[rt as usize];
+
+        let aligned_addr = addr & !3;
+        let aligned_word = self.load32(aligned_addr);
+
+        let value = match addr & 3 {
+            0 => (current_value & 0xffffff00) | (aligned_word >> 24),
+            1 => (current_value & 0xffff0000) | (aligned_word >> 16),
+            2 => (current_value & 0xff000000) | (aligned_word >> 8),
+            3 => (current_value & 0x00000000) | (aligned_word >> 0),
+            _ => unreachable!(),
+        };
+
+        self.store32(aligned_addr, value);
+    }
+
+    fn op_lwr(&mut self, base: u32, rt: u32, offset: u32) {
+        let addr = self.reg(base).wrapping_add(offset);
+
+        let current_value = self.out_regs[rt as usize];
+
+        let aligned_addr = addr & !3;
+        let aligned_word = self.load32(aligned_addr);
+
+        let value = match addr & 3 {
+            0 => (current_value & 0x00000000) | (aligned_word >> 0),
+            1 => (current_value & 0x000000ff) | (aligned_word >> 8),
+            2 => (current_value & 0x0000ffff) | (aligned_word >> 16),
+            3 => (current_value & 0x00ffffff) | (aligned_word >> 24),
+            _ => unreachable!(),
+        };
+
+        self.load = (rt, value);
+    }
+
+    fn op_swr(&mut self, base: u32, rt: u32, offset: u32) {
+        let addr = self.reg(base).wrapping_add(offset);
+
+        let current_value = self.out_regs[rt as usize];
+
+        let aligned_addr = addr & !3;
+        let aligned_word = self.load32(aligned_addr);
+
+        let value = match addr & 3 {
+            0 => (current_value & 0x00000000) | (aligned_word << 0),
+            1 => (current_value & 0x000000ff) | (aligned_word << 8),
+            2 => (current_value & 0x0000ffff) | (aligned_word << 16),
+            3 => (current_value & 0x00ffffff) | (aligned_word << 24),
+            _ => unreachable!(),
+        };
+
+        self.store32(aligned_addr, value);
     }
 
     // Incomplete probably?
@@ -748,4 +872,5 @@ enum Exception {
     StoreAddressError = 0x5,
     Break = 0x9,
     CoprocessorError = 0xb,
+    IllegalInstruction = 0xa,
 }
