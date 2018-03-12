@@ -3,6 +3,7 @@ use ram::Ram;
 use dma::Dma;
 use dma::Port;
 use channel::*;
+use gpu::Gpu;
 
 mod map {
     pub struct Range(u32, u32);
@@ -63,6 +64,7 @@ pub struct Interconnect {
     bios: Bios,
     ram: Ram,
     dma: Dma,
+    gpu: Gpu,
 }
 
 impl Interconnect {
@@ -71,6 +73,7 @@ impl Interconnect {
             bios: bios,
             ram: Ram::new(),
             dma: Dma::new(),
+            gpu: Gpu::new(),
         }
     }
 
@@ -218,7 +221,11 @@ impl Interconnect {
         }
 
         if let Some(offset) = map::GPU.contains(masked_address) {
-            println!("Unimplemented GPU yet. Register: {:#08x} : {:08x}", offset, value);
+            match offset {
+                0 => self.gpu.gp0(value),
+                4 => self.gpu.gp1(value),
+                _ => panic!("GPU write {} {}", offset, value)
+            }
             return;
         }
 
@@ -247,6 +254,11 @@ impl Interconnect {
 
         if let Some(offset) = map::DMA.contains(masked_address) {
             return self.dma_reg(offset);
+        }
+
+        if let Some(offset) = map::TIMERS.contains(masked_address) {
+            println!("Unimplemented TIMERS register: {:#08x}", offset);
+            return 0;
         }
 
         if let Some(offset) = map::GPU.contains(masked_address) {
@@ -352,7 +364,7 @@ impl Interconnect {
 
                 let command = self.ram.load32(addr);
 
-                println!("GPU command: {:08x}", command);
+                self.gpu.gp0(command);
 
                 remsz -= 1;
             }
@@ -390,7 +402,7 @@ impl Interconnect {
                     let source_word = self.ram.load32(current_address);
 
                     match port {
-                        Port::GPU => println!("{:08x}", source_word),
+                        Port::GPU => self.gpu.gp0(source_word),
                         _ => panic!("Unhandled DMA destination port {}", port as u8),
                     }
                 },

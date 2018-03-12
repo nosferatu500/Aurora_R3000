@@ -7,6 +7,7 @@ mod instruction;
 mod ram;
 mod dma;
 mod channel;
+mod gpu;
 
 use bios::*;
 use interconnect::*;
